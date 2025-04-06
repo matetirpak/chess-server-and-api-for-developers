@@ -13,16 +13,14 @@ type Game struct {
 	Name          string
 	ID            int32
 	Password      string
+	Started       bool
 	HasWPlayer    bool
-	W_playerIP    string
 	W_playerToken string
 	HasBPlayer    bool
-	B_playerIP    string
 	B_playerToken string
-	PlayerTurn    string
-	Winner        rune
+	Winner        string
 	Mu            sync.RWMutex
-	BoardData     game_logic.BoardState
+	BoardData     []game_logic.BoardState
 }
 
 var GamesMap = make(map[int32]*Game)

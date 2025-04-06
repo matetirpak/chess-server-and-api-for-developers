@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/matetirpak/chess-server-and-api-for-developers/internal/game_logic"
-
 	db "github.com/matetirpak/chess-server-and-api-for-developers/internal/database"
 )
 
@@ -19,7 +17,7 @@ func DeleteSessions(w http.ResponseWriter, r *http.Request) {
 		Input:
 			Board ID and password.
 
-			ReqdataDeleteGames
+			ReqDeleteSessions
 			BoardID  int32  `json:"board-id,omitempty"`
 			Password string `json:"password,omitempty"`
 		Return:
@@ -36,10 +34,12 @@ func DeleteSessions(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Invalid request payload: %v", err), http.StatusBadRequest)
 		return
 	}
+
 	success := verifyGameAccess(w, req.BoardID, req.Password)
 	if !success {
 		return
 	}
+
 	delete(db.GamesMap, req.BoardID)
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("{}")) // Empty response
@@ -49,11 +49,7 @@ func DeleteSessions(w http.ResponseWriter, r *http.Request) {
 func GetSessions(w http.ResponseWriter, r *http.Request) {
 	/*
 		Input:
-			Board ID and password.
-
-			ReqdataDeleteGames
-			BoardID  int32  `json:"board-id,omitempty"`
-			Password string `json:"password,omitempty"`
+			---
 		Return:
 			List of all existing {name, game ID} pairs.
 
@@ -105,10 +101,6 @@ func PostSessions(w http.ResponseWriter, r *http.Request) {
 
 	NewGame := initializeNewGame(req.Name)
 
-	var NewBoardState game_logic.BoardState
-	game_logic.InitializeBoard(&NewBoardState)
-	NewGame.BoardData = NewBoardState
-
 	db.GamesMap[NewGame.ID] = NewGame
 
 	resp := RespPostSessions{BoardID: NewGame.ID, Password: NewGame.Password}
@@ -157,11 +149,6 @@ func PutSessions(w http.ResponseWriter, r *http.Request) {
 	token := generateToken()
 	resp := RespPutSessions{Token: token}
 
-	client_ip, err := extractClientIP(w, r)
-	if err != nil {
-		return
-	}
-
 	switch req.Color {
 	case "w":
 		if game.HasWPlayer {
@@ -169,10 +156,9 @@ func PutSessions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		game.HasWPlayer = true
-		game.W_playerIP = client_ip
 		game.W_playerToken = token
 		if game.HasBPlayer {
-			game.PlayerTurn = "w"
+			game.Started = true
 		}
 		json.NewEncoder(w).Encode(resp)
 
@@ -182,10 +168,9 @@ func PutSessions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		game.HasBPlayer = true
-		game.B_playerIP = client_ip
 		game.B_playerToken = token
 		if game.HasWPlayer {
-			game.PlayerTurn = "w"
+			game.Started = true
 		}
 		json.NewEncoder(w).Encode(resp)
 

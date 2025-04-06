@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gorilla/schema"
 	"github.com/matetirpak/chess-server-and-api-for-developers/internal/game_logic"
 
 	db "github.com/matetirpak/chess-server-and-api-for-developers/internal/database"
@@ -22,13 +23,14 @@ func GetGame(w http.ResponseWriter, r *http.Request) {
 			are required.
 			Either 'Statereq' or 'Turnreq' have to be true.
 
-			ReqdataGetBoard
-			BoardID  int32  `json:"board-id,omitempty"`
-			Password string `json:"password,omitempty"`
-			Color    string `json:"color,omitempty"`
-			Token    string `json:"token,omitempty"`
-			Statereq int32  `json:"statereq,omitempty"`
-			Turnreq  int32  `json:"turnreq,omitempty"`
+			ReqGetGame
+			Moveidx  int32  `json:"moveidx,omitempty"`
+			BoardID  int32  `json:"board-id"`
+			Password string `json:"password"`
+			Color    string `json:"color"`
+			Token    string `json:"token"`
+			Statereq int32  `json:"statereq"`
+			Turnreq  int32  `json:"turnreq"`
 		Return:
 			Either board information or a notification when
 			it's the player's turn.
@@ -45,10 +47,12 @@ func GetGame(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	var req ReqGetGame
+	decoder := schema.NewDecoder()
+	decoder.IgnoreUnknownKeys(true)
 
-	err := json.NewDecoder(r.Body).Decode(&req)
+	err := decoder.Decode(&req, r.URL.Query())
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Invalid request payload: %v", err), http.StatusBadRequest)
+		http.Error(w, "Failed to parse query params: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -63,18 +67,17 @@ func GetGame(w http.ResponseWriter, r *http.Request) {
 	}
 	var game *db.Game = db.GamesMap[req.BoardID]
 
-	client_ip, err := extractClientIP(w, r)
-	if err != nil {
-		return
-	}
-
-	success2 := verifyBoardAccess(w, game, client_ip, req.Color, req.Token)
+	success2 := verifyBoardAccess(w, game, req.Color, req.Token)
 	if !success2 {
 		return
 	}
 
 	if req.Statereq {
-		resp := game.BoardData
+		var idx int = int(req.Moveidx)
+		if idx == -1 {
+			idx = len(game.BoardData) - 1
+		}
+		resp := game.BoardData[idx]
 		json.NewEncoder(w).Encode(resp)
 		return
 	}
@@ -93,7 +96,7 @@ func GetGame(w http.ResponseWriter, r *http.Request) {
 			case <-ticker.C:
 				// Check the current player's turn
 				game.Mu.RLock()
-				currentTurn := game.PlayerTurn
+				currentTurn := game.BoardData[len(game.BoardData)-1].TurnColor
 				game.Mu.RUnlock()
 
 				if currentTurn == req.Color {
@@ -125,7 +128,7 @@ func UpdateTurn(w http.ResponseWriter, r *http.Request) {
 	}
 	// Update the player turn
 	game.Mu.Lock()
-	game.PlayerTurn = req.Turn
+	game.BoardData[len(game.BoardData)-1].TurnColor = req.Turn
 	game.Mu.Unlock()
 
 	resp := fmt.Sprintf(`{"message":"Turn updated to: %s"}`, req.Turn)
@@ -141,12 +144,13 @@ func PutGame(w http.ResponseWriter, r *http.Request) {
 			Board ID, password, color and associated token,
 			and move to be made.
 
-			ReqdataPutBoard
-			BoardID  int32  `json:"board-id,omitempty"`
-			Password string `json:"password,omitempty"`
-			Color    string `json:"color,omitempty"`
-			Token    string `json:"token,omitempty"`
+			ReqPutGame
+			BoardID  int32  `json:"board-id"`
+			Password string `json:"password"`
+			Color    string `json:"color"`
+			Token    string `json:"token"`
 			Move     string `json:"move,omitempty"`
+			Forfeit  bool   `json:"forfeit,omitempty"`
 		Return:
 			---
 		Actions:
@@ -168,17 +172,30 @@ func PutGame(w http.ResponseWriter, r *http.Request) {
 	}
 	var game *db.Game = db.GamesMap[req.BoardID]
 
-	client_ip, err := extractClientIP(w, r)
-	if err != nil {
-		return
-	}
-
-	success2 := verifyBoardAccess(w, game, client_ip, req.Color, req.Token)
+	success2 := verifyBoardAccess(w, game, req.Color, req.Token)
 	if !success2 {
 		return
 	}
 
-	if game.Winner != 'n' {
+	if req.Forfeit {
+		game.BoardData[len(game.BoardData)-1].TurnColor = "n"
+		if req.Color == "w" {
+			game.Winner = "b"
+			game.BoardData[len(game.BoardData)-1].Winner = "b"
+		} else {
+			game.Winner = "w"
+			game.BoardData[len(game.BoardData)-1].Winner = "w"
+		}
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if !game.Started {
+		http.Error(w, "Can't apply move. Game has not started.", http.StatusBadRequest)
+		return
+	}
+
+	if game.Winner != "n" {
 		http.Error(w, "Can't apply move. Game has ended.", http.StatusBadRequest)
 		return
 	}
@@ -190,13 +207,14 @@ func PutGame(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check validity of move
-	err = game_logic.ValidateMove(&move, &game.BoardData)
+	err = game_logic.ValidateMove(&move, &game.BoardData[len(game.BoardData)-1])
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Move is invalid with error: %v", err), http.StatusBadRequest)
 		return
 	}
 
-	game_logic.MakeMove(&move, &game.BoardData)
+	newBstate := game_logic.MakeMove(&move, game.BoardData[len(game.BoardData)-1])
+	game.BoardData = append(game.BoardData, newBstate)
 
 	w.WriteHeader(http.StatusOK)
 }

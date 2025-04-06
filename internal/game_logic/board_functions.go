@@ -6,6 +6,8 @@ board information are implemented here.
 package game_logic
 
 import (
+	"encoding/json"
+	"math"
 	"strings"
 )
 
@@ -22,22 +24,23 @@ type BoardState struct {
 	BlackKingPos   [2]int     `json:"blackkingpos"`
 	WhiteKingMoved bool       `json:"whitekingmoved"`
 	BlackKingMoved bool       `json:"blackkingmoved"`
-	Winner         rune       `json:"winner"`
+	Winner         string     `json:"winner"`
+	TurnColor      string     `json:"turncolor"`
 	EnPassant      [2]int     `json:"enpassant"`
-	TurnColor      rune       `json:"turncolor"`
 }
 
 // Constructs the standard starting board.
-func InitializeBoard(boardState *BoardState) {
-	boardState.WhiteKingPos = [2]int{7, 4}
-	boardState.BlackKingPos = [2]int{0, 4}
-	boardState.WhiteKingMoved = false
-	boardState.BlackKingMoved = false
-	boardState.Winner = 'n'
-	boardState.EnPassant = [2]int{-1, -1}
-	boardState.TurnColor = 'w'
+func InitializeBoard(boardStates *[]BoardState) {
+	var bstate BoardState
+	bstate.WhiteKingPos = [2]int{7, 4}
+	bstate.BlackKingPos = [2]int{0, 4}
+	bstate.WhiteKingMoved = false
+	bstate.BlackKingMoved = false
+	bstate.Winner = "n"
+	bstate.EnPassant = [2]int{-1, -1}
+	bstate.TurnColor = "w"
 
-	board := &boardState.Board
+	board := &bstate.Board
 
 	// Initialize black pieces
 	board[0][0] = 'R'
@@ -71,6 +74,7 @@ func InitializeBoard(boardState *BoardState) {
 	board[7][5] = 'b'
 	board[7][6] = 'k'
 	board[7][7] = 'r'
+	*boardStates = append(*boardStates, bstate)
 }
 
 // Returns the color and piece given a position on the board.
@@ -97,4 +101,48 @@ func getColorAndPiece(row int, col int, board [8][8]rune) (color rune, piece run
 // Checks whether a position is within the board's bounds.
 func isInBounds(pos [2]int) bool {
 	return pos[0] >= 0 && pos[0] < 8 && pos[1] >= 0 && pos[1] < 8
+}
+
+// Applies a specified move to the board.
+func MakeMove(move *Move, bstate BoardState) BoardState {
+	fromRow, fromCol := move.from[0], move.from[1]
+	toRow, toCol := move.to[0], move.to[1]
+	fromColor, fromPiece := getColorAndPiece(fromRow, fromCol, bstate.Board)
+
+	var newBstate BoardState
+	data, _ := json.Marshal(bstate)
+	json.Unmarshal(data, &newBstate)
+
+	// Update king positions
+	if fromPiece == 'x' {
+		if fromColor == 'w' {
+			newBstate.WhiteKingMoved = true
+			newBstate.WhiteKingPos = [2]int{toRow, toCol}
+		}
+		if fromColor == 'b' {
+			newBstate.BlackKingMoved = true
+			newBstate.BlackKingPos = [2]int{toRow, toCol}
+		}
+	}
+
+	// Update en passant
+	newBstate.EnPassant = [2]int{-1, -1}
+	if fromPiece == 'p' {
+		if math.Abs(float64(fromRow-toRow)) == 2 {
+			newBstate.EnPassant = [2]int{toRow, toCol}
+		}
+	}
+
+	// Update board
+	newBstate.Board[toRow][toCol] = newBstate.Board[fromRow][fromCol]
+	newBstate.Board[fromRow][fromCol] = Empty
+
+	// Update player
+	if fromColor == 'w' {
+		newBstate.TurnColor = "b"
+	} else {
+		newBstate.TurnColor = "w"
+	}
+
+	return newBstate
 }

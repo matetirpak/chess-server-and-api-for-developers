@@ -52,7 +52,7 @@ var routes = Routes{
 	Route{
 		"GetSessions",
 		strings.ToUpper("Get"),
-		"/ChessServer/1.0.0/sessions",
+		"/ChessServer/0.1.0/sessions",
 		api.GetSessions,
 	},
 

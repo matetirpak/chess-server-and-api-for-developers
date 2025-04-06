@@ -4,13 +4,12 @@ Helper functions for API communication and game setup.
 package api
 
 import (
-	"fmt"
-	"net"
 	"net/http"
 
 	"github.com/google/uuid"
 
 	db "github.com/matetirpak/chess-server-and-api-for-developers/internal/database"
+	"github.com/matetirpak/chess-server-and-api-for-developers/internal/game_logic"
 )
 
 // Verifies whether a user has access to a session.
@@ -28,16 +27,12 @@ func verifyGameAccess(w http.ResponseWriter, id int32, password string) bool {
 }
 
 // Verifies whether a user is registered as a player and has access to a session.
-func verifyBoardAccess(w http.ResponseWriter, game *db.Game, client_ip string, color string, token string) bool {
+func verifyBoardAccess(w http.ResponseWriter, game *db.Game, color string, token string) bool {
 	// Both ip and token have to match with the database, session password is not required.
 	switch color {
 	case "w":
 		if !game.HasWPlayer {
 			http.Error(w, "White player does not exist.", http.StatusNotFound)
-			return false
-		}
-		if game.W_playerIP != client_ip {
-			http.Error(w, "IP is not authorized.", http.StatusUnauthorized)
 			return false
 		}
 		if game.W_playerToken != token {
@@ -49,10 +44,6 @@ func verifyBoardAccess(w http.ResponseWriter, game *db.Game, client_ip string, c
 	case "b":
 		if !game.HasBPlayer {
 			http.Error(w, "Black player does not exist.", http.StatusNotFound)
-			return false
-		}
-		if game.B_playerIP != client_ip {
-			http.Error(w, "IP is not authorized.", http.StatusUnauthorized)
 			return false
 		}
 		if game.B_playerToken != token {
@@ -67,16 +58,6 @@ func verifyBoardAccess(w http.ResponseWriter, game *db.Game, client_ip string, c
 	}
 }
 
-func extractClientIP(w http.ResponseWriter, r *http.Request) (string, error) {
-	// Split the RemoteAddr into host (IP) and port
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error when extracting IP: %v", err), http.StatusInternalServerError)
-		return "", err
-	}
-	return ip, nil
-}
-
 func generateToken() string {
 	return uuid.New().String()
 }
@@ -89,7 +70,7 @@ func initializeNewGame(name string) *db.Game {
 	game.Password = generateToken()
 	game.HasWPlayer = false
 	game.HasBPlayer = false
-	game.PlayerTurn = "NotStarted"
-	game.Winner = 'n'
+	game.Winner = "n"
+	game_logic.InitializeBoard(&game.BoardData)
 	return &game
 }

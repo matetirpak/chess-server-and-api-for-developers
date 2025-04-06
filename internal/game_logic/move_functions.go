@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 )
 
 const Empty = ' '
@@ -289,8 +288,8 @@ func StringToMoveStruct(moveStr string, color rune) (Move, error) {
 }
 
 // validateMove checks whether a move is valid.
-func ValidateMove(move *Move, boardState *BoardState) error {
-	board := boardState.Board
+func ValidateMove(move *Move, bstate *BoardState) error {
+	board := bstate.Board
 	from_row, from_col := move.from[0], move.from[1]
 	color := move.color
 	if !isInBounds(move.from) || !isInBounds(move.to) {
@@ -307,7 +306,7 @@ func ValidateMove(move *Move, boardState *BoardState) error {
 		return errors.New("the target position contains an owned piece")
 	}
 
-	pinned, err := isPinned(from_row, from_col, boardState)
+	pinned, err := isPinned(from_row, from_col, bstate)
 	if err != nil {
 		return err
 	}
@@ -316,18 +315,18 @@ func ValidateMove(move *Move, boardState *BoardState) error {
 	}
 
 	var moves *Move
-	generateMovesForPiece(from_row, from_col, boardState, &moves)
+	generateMovesForPiece(from_row, from_col, bstate, &moves)
 	if !isMoveInMoves(move, moves) {
 		return errors.New("move doesn't exist")
 	}
 
-	var tmpBoardState BoardState
-	data, _ := json.Marshal(boardState)
-	json.Unmarshal(data, &tmpBoardState)
+	var tmpBstate BoardState
+	data, _ := json.Marshal(bstate)
+	json.Unmarshal(data, &tmpBstate)
 
-	MakeMove(move, &tmpBoardState)
+	new_bstate := MakeMove(move, tmpBstate)
 
-	attacked, err := kingAttacked(color, &tmpBoardState)
+	attacked, err := kingAttacked(color, &new_bstate)
 	if err != nil {
 		return err
 	}
@@ -336,42 +335,4 @@ func ValidateMove(move *Move, boardState *BoardState) error {
 	}
 
 	return nil
-}
-
-// Applies a specified move to the board.
-func MakeMove(move *Move, boardState *BoardState) {
-	fromRow, fromCol := move.from[0], move.from[1]
-	toRow, toCol := move.to[0], move.to[1]
-	fromColor, fromPiece := getColorAndPiece(fromRow, fromCol, boardState.Board)
-
-	// Update king positions
-	if fromPiece == 'x' {
-		if fromColor == 'w' {
-			boardState.WhiteKingMoved = true
-			boardState.WhiteKingPos = [2]int{toRow, toCol}
-		}
-		if fromColor == 'b' {
-			boardState.BlackKingMoved = true
-			boardState.BlackKingPos = [2]int{toRow, toCol}
-		}
-	}
-
-	// Update en passant
-	boardState.EnPassant = [2]int{-1, -1}
-	if fromPiece == 'p' {
-		if math.Abs(float64(fromRow-toRow)) == 2 {
-			boardState.EnPassant = [2]int{toRow, toCol}
-		}
-	}
-
-	// Update board
-	boardState.Board[toRow][toCol] = boardState.Board[fromRow][fromCol]
-	boardState.Board[fromRow][fromCol] = Empty
-
-	// Update player
-	if fromColor == 'w' {
-		boardState.TurnColor = 'b'
-	} else {
-		boardState.TurnColor = 'w'
-	}
 }
